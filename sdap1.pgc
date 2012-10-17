@@ -1,0 +1,460 @@
+/**
+ * File - Assignment#1.pgc
+ *
+ * Desc - This is a C++ program using Embedded SQL to give two reports:
+ *        1. A table for each combination of customer and product, list the
+ *           average sales quantities for NY, NJ and CT.
+ *        2. A table for each combination of customer and product, list the 
+ *           maximum, minimum and average sales quantities along with the
+ *           corresponding dates and the state.
+ *        The data is based on the table "sales", and the reports output to
+ *        the console.
+ *
+ * Data Structures:
+ *        Create a class named Record to store all processed data. 
+ *        Create a struct named date to restore mm,dd,yy to make the variables
+ *        in Record more clear.
+ *        Use vector<Record> to store all Records because using vector is one of
+ *        the most convenient way in C++, which is easy to traverse and edit.
+ *        Vector also has no redundant memory which is important in processing
+ *        large amount of number.
+ *
+ * Single Scan:
+ *        This program output two reports in one main function. In the while 
+ *        statement of scanning data from database, it will traverse the vector
+ *        to find whether there is a record of combination of customer and 
+ *        product. If there is a record, update the record with data in database
+ *        in current loop. If not, add the new record.
+ *
+ * Steps to run this program:
+ *        1. Log in to PostgreSQL server (ssh [username]@postgres.cs.stevens.edu)
+ *        2. In the program (L215), modify [dbname], [username], [password] to yours.
+ *        3. Preprocessor - $ ecpg -I /usr/include/postgresql/ Assignment#1.pgc
+ *        4. Compile      - $ g++ -c -I /usr/include/postgresql/ Assignment#1.c
+ *        5. Link         - $ g++ -L /usr/include/postgresql/ -lecpg -o Assignment#1 Assignment#1.o
+ *        6. Execute      - $ ./Assignment#1 
+ *
+ * Created by Xin Gao(10373608) on 10/14/12.
+ * Copyright (c) 2012 Xin Gao. All rights reserved.
+ */
+
+
+#include <iostream>
+#include <iomanip>
+#include <vector>
+#include <string>
+
+using namespace std;
+using std::vector;
+
+
+//----------------------------------------------------------------------
+// HOST VARIABLES definitions
+//----------------------------------------------------------------------
+EXEC SQL BEGIN DECLARE SECTION;
+struct DBRecord
+{
+	char	*cust;
+	char	*prod;
+	short    dd;
+	short    mm;
+	short	 yy;
+	char	*state;
+	long	 quant;
+}	sale_rec;
+EXEC SQL END DECLARE SECTION;
+EXEC SQL INCLUDE sqlca;
+
+//----------------------------------------------------------------------
+// DATE STRUCT definitions
+//----------------------------------------------------------------------
+struct Date
+{
+    short day;
+    short month;
+    short year;
+};
+
+//----------------------------------------------------------------------
+// RECORD CLASS definitions
+//----------------------------------------------------------------------
+class Record
+{
+public:
+    string cust;
+    string prod;
+    
+    //----------------------------------------------------------------------
+    // FOR QUERY 1
+    //----------------------------------------------------------------------
+    long sumNY;
+    long sumNJ;
+    long sumCT;
+    long avgNY;
+    long avgNJ;
+    long avgCT;
+    int countNY;
+    int countNJ;
+    int countCT;
+    
+    //----------------------------------------------------------------------
+    // FOR QUERY 2
+    //----------------------------------------------------------------------    
+    long maxQuant;
+    long minQuant;
+    Date maxDate;
+    Date minDate;
+    string maxState;
+    string minState;
+    
+    //----------------------------------------------------------------------
+    // FOR QUERY 3
+    //----------------------------------------------------------------------    
+    int countALL;
+    long avgALL;
+    long sumALL;
+    
+public:
+    //----------------------------------------------------------------------
+    // CONSTRUCTOR
+    //----------------------------------------------------------------------
+    Record()
+    {
+        cust = "";
+        prod = "";
+        
+        sumNY = 0;
+        sumNJ = 0;
+        sumCT = 0;
+        avgNY = 0;
+        avgNJ = 0;
+        avgCT = 0;
+        countNY = 0;
+        countNJ = 0;
+        countCT = 0;
+        
+        maxQuant = 0;
+        minQuant = 0;
+        maxDate.day = 0;
+        maxDate.month = 0;
+        maxDate.year = 0;
+        minDate.day = 0;
+        minDate.month = 0;
+        minDate.year = 0;
+        maxState = "";
+        minState = "";
+        
+        countALL = 0;
+        avgALL = 0;
+        sumALL = 0;
+    }
+
+    //----------------------------------------------------------------------
+    // PUBLIC METHODS
+    //----------------------------------------------------------------------
+    void    getAvg()
+    {
+        avgNY = countNY!=0 ? (sumNY/countNY) : 0;
+        avgNJ = countNJ!=0 ? (sumNJ/countNJ) : 0;
+        avgCT = countCT!=0 ? (sumCT/countCT) : 0;
+        
+        avgALL = countALL!=0 ? (sumALL/countALL) : 0;
+    }
+    
+    void    initValue(DBRecord theRecord)
+    {
+        cust = theRecord.cust;
+        prod = theRecord.prod;
+        
+        if (strcmp(theRecord.state, "NY") == 0)
+        {
+            sumNY += theRecord.quant;
+            countNY++;
+        }
+        else if (strcmp(theRecord.state, "NJ") == 0)
+        {
+            sumNJ += theRecord.quant;
+            countNJ++;
+        } 
+        else if (strcmp(theRecord.state, "CT") == 0)
+        {
+            sumCT += theRecord.quant;
+            countCT++;
+        }
+        
+        maxQuant = theRecord.quant;
+        minQuant = theRecord.quant;
+        maxState = theRecord.state;
+        minState = theRecord.state;
+        maxDate.day = theRecord.dd;
+        maxDate.month = theRecord.mm;
+        maxDate.year = theRecord.yy;
+        minDate.day = theRecord.dd;
+        minDate.month = theRecord.mm;
+        minDate.year = theRecord.yy;
+
+        countALL++;
+        sumALL += theRecord.quant;
+    }
+};
+
+//----------------------------------------------------------------------
+// FUNCTION PROTOTYPE declaration
+//----------------------------------------------------------------------
+void	outputResult_1(Record theRecord); //output result for query 1 to the console
+void	outputResult_2_3(Record theRecord); //output result for query 2&3 to the console
+string    getDateString(Date date);
+
+//----------------------------------------------------------------------
+int     main(int argc, char* argv[])
+//----------------------------------------------------------------------
+{    
+    //----------------------------------------------------------------------
+    // DATABASE CONNECTION
+    //----------------------------------------------------------------------
+    EXEC SQL CONNECT TO "xgao12" USER "xgao12" IDENTIFIED BY "xgao12";
+    EXEC SQL WHENEVER sqlerror sqlprint;
+    
+    //----------------------------------------------------------------------
+    // CREATE VECTOR FOR RECORDS
+    //----------------------------------------------------------------------
+    vector<Record> records;
+    
+    //----------------------------------------------------------------------
+    // READ RECORDS
+    //----------------------------------------------------------------------
+    EXEC SQL DECLARE mycursor CURSOR FOR SELECT * FROM sales;
+    EXEC SQL SET TRANSACTION read only;
+    // Open cursor
+    EXEC SQL OPEN mycursor;
+    // Fetch Dataedx
+    EXEC SQL FETCH FROM mycursor INTO :sale_rec; //fetch the first row
+    while (sqlca.sqlcode == 0) 
+    {
+        //----------------------------------------------------------------------
+        // SEARCH THE VECTOR WHETHER RECORD EXIST
+        //----------------------------------------------------------------------
+        vector<Record>::iterator iter;
+        bool hasRecord = false;
+        for(iter = records.begin(); iter!=records.end(); ++iter)
+        {
+            Record aRecord = *iter;
+            
+            //----------------------------------------------------------------------
+            // IF HAS RECORD, PROCESS IT
+            //----------------------------------------------------------------------            
+            if (strcmp(sale_rec.cust, aRecord.cust.c_str()) == 0 &&
+                strcmp(sale_rec.prod, aRecord.prod.c_str()) == 0)
+            {
+                //----------------------------------------------------------------------
+                // Q1, ADD TO SUM BY STATE
+                //----------------------------------------------------------------------
+                if (strcmp(sale_rec.state, "NY") == 0)
+                {
+                    aRecord.sumNY += sale_rec.quant;
+                    aRecord.countNY++;
+                }
+                else if (strcmp(sale_rec.state, "NJ") == 0)
+                {
+                    aRecord.sumNJ += sale_rec.quant;
+                    aRecord.countNJ++;
+                } 
+                else if (strcmp(sale_rec.state, "CT") == 0)
+                {
+                    aRecord.sumCT += sale_rec.quant;
+                    aRecord.countCT++;
+                }
+
+                //----------------------------------------------------------------------
+                // Q2, COMPARE RECORD AND FIND MAX & MIN
+                //----------------------------------------------------------------------
+                if (aRecord.maxQuant < sale_rec.quant)
+                {
+                    aRecord.maxQuant = sale_rec.quant;
+                    aRecord.maxDate.day = sale_rec.dd;
+                    aRecord.maxDate.month = sale_rec.mm;
+                    aRecord.maxDate.year = sale_rec.yy;
+                    aRecord.maxState = sale_rec.state;
+                }
+                else if (aRecord.minQuant > sale_rec.quant)
+                {
+                    aRecord.minQuant = sale_rec.quant;
+                    aRecord.minDate.day = sale_rec.dd;
+                    aRecord.minDate.month = sale_rec.mm;
+                    aRecord.minDate.year = sale_rec.yy;
+                    aRecord.minState = sale_rec.state;                
+                }
+
+                //----------------------------------------------------------------------
+                // Q3, ADD TO SUM
+                //----------------------------------------------------------------------
+                aRecord.sumALL += sale_rec.quant;
+                aRecord.countALL++;
+                
+                //----------------------------------------------------------------------
+                // UPDATE RECORD
+                //----------------------------------------------------------------------
+                *iter = aRecord;
+                hasRecord = true;
+                
+                break;
+            }
+        }
+        
+        //----------------------------------------------------------------------
+        // IF DONOT HAVE RECORD, ADD IT
+        //----------------------------------------------------------------------   
+        if (!hasRecord)
+        {
+            Record newRecord;
+            // Add initial values to new record
+            newRecord.initValue(sale_rec);
+            
+            // Add newRecord to vector:records
+            records.push_back(newRecord);
+        }
+
+        EXEC SQL FETCH FROM mycursor INTO :sale_rec; //fetch the rest rows
+    }
+    // Close cursor
+    EXEC SQL CLOSE mycursor;
+    
+    //----------------------------------------------------------------------
+    // FINAL PROCESS
+    //----------------------------------------------------------------------
+    vector<Record>::iterator iter;
+    for(iter = records.begin(); iter!=records.end(); ++iter)
+    {
+        Record aRecord = *iter;
+        aRecord.getAvg();
+        
+        *iter = aRecord;
+    }
+    
+    // Space
+    cout << "\n";
+    
+    //----------------------------------------------------------------------
+    // PRINT TITLE & OUTPUT RESULT : QUERY 1
+    //----------------------------------------------------------------------
+    cout << "Report 1 : \n";
+    cout << " CUST  | PROD    | NY_AVG | NJ_AVG | CT_AVG \n";
+    cout << "-------+---------+--------+--------+--------\n";
+    vector<Record>::iterator iter1;
+    for(iter1 = records.begin(); iter1!=records.end(); ++iter1)
+    {
+        Record aRecord = *iter1;
+        outputResult_1(aRecord);
+    }
+    
+    // Space
+    cout << "\n";
+    
+    //----------------------------------------------------------------------
+    // PRINT TITLE & OUTPUT RESULT : QUERY 2 & 3
+    //----------------------------------------------------------------------
+    cout << "Report 2&3 : \n";
+    cout << " CUST  | PROD    | MAX_Q | DATE       | STATE | MIN_Q | DATE       | STATE | AVG_Q \n";
+    cout << "-------+---------+-------+------------+-------+-------+------------+-------+-------\n";
+    vector<Record>::iterator iter2;
+    for(iter2 = records.begin(); iter2!=records.end(); ++iter2)
+    {
+        Record aRecord = *iter2;
+        outputResult_2_3(aRecord);
+    }
+    
+    // Space
+    cout << "\n";
+    
+    return 0;
+}
+
+//----------------------------------------------------------------------
+void    outputResult_1(Record theRecord)
+//----------------------------------------------------------------------
+{
+    cout << " " << setiosflags(ios::left) // set adjustfield on left
+         << setw(8) << theRecord.cust
+         << setw(9) << theRecord.prod;
+
+    cout << setiosflags(ios::right) // set adjustfield on right
+         << setw(7) << theRecord.avgNY
+         << setw(9) << theRecord.avgNJ
+         << setw(9) << theRecord.avgCT
+         << "\n";
+         
+    cout.unsetf(ios::adjustfield); // clear adjustfield for the next row
+}
+
+//----------------------------------------------------------------------
+void    outputResult_2_3(Record theRecord)
+//----------------------------------------------------------------------
+{
+    cout << " " << setiosflags(ios::left) // set adjustfield on left
+         << setw(8) << theRecord.cust
+         << setw(9) << theRecord.prod;
+
+    cout << setiosflags(ios::right) // set adjustfield on right
+         << setw(6) << theRecord.maxQuant
+         << setw(13) << getDateString(theRecord.maxDate)
+         << setw(8) << theRecord.maxState
+         << setw(8) << theRecord.minQuant
+         << setw(13) << getDateString(theRecord.minDate)
+         << setw(8) << theRecord.minState
+         << setw(8) << theRecord.avgALL
+         << "\n";
+         
+    cout.unsetf(ios::adjustfield); // clear adjustfield for the next row
+}
+
+//----------------------------------------------------------------------
+string    getDateString(Date date)
+//----------------------------------------------------------------------
+{
+    string str;
+    
+    if (date.month < 10)
+    {
+        char mm[1];
+        sprintf(mm, "%i", date.month);
+        string month = mm;
+        str.append("0");
+        str.append(month);
+    }
+    else
+    {
+        char mm[2];
+        sprintf(mm, "%i", date.month);
+        string month = mm;
+        str.append(month);
+    }
+    
+    str.append("/");
+
+    if (date.day < 10)
+    {
+        char dd[1];
+        sprintf(dd, "%i", date.day);
+        string day = dd;
+        str.append("0");
+        str.append(day);
+    }
+    else
+    {
+        char dd[2];
+        sprintf(dd, "%i", date.day);
+        string day = dd;
+        str.append(day);
+    }
+    
+    str.append("/");
+
+    char yy[4];
+    sprintf(yy, "%i", date.year);
+    string year = yy;
+    str.append(year);
+
+    return str;
+}
+
+
