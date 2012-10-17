@@ -1,5 +1,5 @@
 /**
- * File - Assignment#1.pgc
+ * File - sdap1.pgc
  *
  * Desc - This is a C++ program using Embedded SQL to give two reports:
  *        1. A table for each combination of customer and product, list the
@@ -212,7 +212,7 @@ int     main(int argc, char* argv[])
     //----------------------------------------------------------------------
     // DATABASE CONNECTION
     //----------------------------------------------------------------------
-    EXEC SQL CONNECT TO "xgao12" USER "xgao12" IDENTIFIED BY "xgao12";
+    EXEC SQL CONNECT TO [dbname] USER [username] IDENTIFIED BY [password];
     EXEC SQL WHENEVER sqlerror sqlprint;
     
     //----------------------------------------------------------------------
